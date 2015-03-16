@@ -1,4 +1,4 @@
-import times, posix
+import math
 
 when defined(x86_64) or defined(macosx):
   proc getCycles: int64 {.inline.} =
@@ -13,71 +13,54 @@ else:
       "rdtsc" : "=A"(`result`)
     """
 
-proc getTime: float {.inline.} =
-  var ts: TTimespec
-  discard clock_gettime(CLOCK_MONOTONIC, ts)
-  float(ts.tv_sec) + float(ts.tv_nsec) * 1e-9
-
-proc getCPUTime: float {.inline.} =
-  var ts: TTimespec
-  discard clock_gettime(CLOCK_PROCESS_CPUTIME_ID, ts)
-  float(ts.tv_sec) + float(ts.tv_nsec) * 1e-9
-
-proc doWork: int =
-  result = 0
-  for i in 1..100:
-    result += i*i
-
 proc fib(n: int): int =
   case n
   of 0: 0
   of 1: 1
   else: fib(n-1) + fib(n-2)
 
-proc avg[T](xs: varargs[T]): T =
-  for x in xs:
-    result += x
-  result = result div xs.len
+proc `$`*(r: RunningStat): string =
+  "{n=" & $r.n & " sum=" & $r.sum & " min=" & $r.min & " max=" & $r.max & " mean=" & $r.mean & "}"
 
-type Measure = object
-  time, cpuTime: float
-  cycles: int64
-
-template measure(n: int, body: stmt): expr =
-  var ms = newSeq[Measure](n)
-  #for m in ms.mitems:
-  for idx in 0..ms.len-1:
-    #let t1 = getTime()
-    #let p1 = getCPUTime()
+template measure(n: int, body: stmt): RunningStat =
+  ## Returning RunningStat so no array is needed and
+  ## decreases any memory pressure. Also, more consistent
+  ## results are obtained if RunningStat.min is used to
+  ## report the cycles/loop (c/l), of course YMMV.
+  var rs: RunningStat
+  for idx in 0..n-1:
     let c1 = getCycles()
     body
-    #let t2 = getTime()
-    #let p2 = getCPUTime()
     let c2 = getCycles()
-    ms[idx].cycles = c2-c1
-    #ms[idx].time = t2-t1
-    #ms[idx].cpuTime = p2-p1
-  ms
+    rs.push(float(c2-c1))
+  rs
 
-template benchmark(name: expr, body: stmt): stmt {.immediate.} =
+template benchmark(name: expr, body: stmt) {.immediate.} =
   block:
     # TODO: Do something with the name
     body
 
-template bench(name: expr, body: stmt): stmt {.immediate.} =
+template bench(name: expr, body: stmt) {.immediate.} =
   block:
     # TODO: Do something with the name
+    let
+      # These need to be determined dynamically based on body and system speed
+      # and these aren't enough to give totally consistent results. For test1
+      # I see between 0.0c/l to 12.0c/l. For test2 it's 2450c/l 90% of the time
+      # but once in awhile I see 2452c/l and 2454c/l.
+      osLoops = 10_000_000
+      msLoops = 100_000
 
-    var os = avg measure(1000, (discard)).map(proc(x: Measure): int64 = x.cycles)
-    #echo os
+    # Measure do nothing with enough work to get the
+    # cpu going "fast". Hence the 10,000,000 loops which
+    # on a late 2013 Macbook Pro 2.6GHz Core i7 is giving
+    # a consistent of 12 c/l for os.min.
+    var os = measure(osLoops, (discard))
+    #echo name, " ", os.min, "c/l std=", standardDeviation(os), " os=", os
 
-    var ms = measure(1000, body)
-    var avg: int64
-    for m in ms:
-      #echo m.cycles - os
-      avg += m.cycles
-    avg = avg div ms.len
-    echo name, " ", avg-os
+    # Measure work
+    var ms = measure(msLoops, body)
+    echo name, " ", ms.min - os.min, "c/l std=", standardDeviation(ms), " ms=", ms
 
 benchmark "Test Bench":
   bench "test1":
