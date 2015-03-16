@@ -1,6 +1,6 @@
 import times, posix
 
-when defined(x86_64):
+when defined(x86_64) or defined(macosx):
   proc getCycles: int64 {.inline.} =
     var hi,lo: uint32
     asm """
@@ -45,17 +45,18 @@ type Measure = object
 
 template measure(n: int, body: stmt): expr =
   var ms = newSeq[Measure](n)
-  for m in ms.mitems:
-    let t1 = getTime()
-    let p1 = getCPUTime()
+  #for m in ms.mitems:
+  for idx in 0..ms.len-1:
+    #let t1 = getTime()
+    #let p1 = getCPUTime()
     let c1 = getCycles()
     body
-    let t2 = getTime()
-    let p2 = getCPUTime()
+    #let t2 = getTime()
+    #let p2 = getCPUTime()
     let c2 = getCycles()
-    m.cycles = c2-c1
-    m.time = t2-t1
-    m.cpuTime = p2-p1
+    ms[idx].cycles = c2-c1
+    #ms[idx].time = t2-t1
+    #ms[idx].cpuTime = p2-p1
   ms
 
 template benchmark(name: expr, body: stmt): stmt {.immediate.} =
